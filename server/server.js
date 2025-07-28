@@ -5,6 +5,7 @@ const hostname = '127.0.0.1';
 const port = 3001;
 const graphFile = 'graph.json';
 let graphData = { nodes: [], edges: [] };
+const path = require('path');
 
 // For the Cytoscape graph
 // Check if the graph file exists, if not create it with default structure
@@ -33,6 +34,7 @@ const server = http.createServer((req, res) => {
 
   const parsedUrl = url.parse(req.url, true);
 
+  // Later once users are implemented
   //before logged in
   if (parsedUrl.pathname === "/users") {
     switch (req.method) {
@@ -104,7 +106,8 @@ const server = http.createServer((req, res) => {
 
     //When the user is logged in
     //change user -> {username}
-  } else if (parsedUrl.pathname.startsWith("/users/")) {
+  } 
+  else if (parsedUrl.pathname.startsWith("/users/")) {
     const id = parseInt(parsedUrl.pathname.split("/")[2], 10);
     const userIndex = users.findIndex(user => user.id === id);
 
@@ -157,121 +160,222 @@ const server = http.createServer((req, res) => {
     }
 
 }
-// Node.js server for the Cytoscape graph
-    else if (parsedUrl.pathname === "/graph" && req.method === "POST") {
-    let body = "";
 
-    req.on("data", chunk => {
-        body += chunk.toString();
-    });
+  // handles Post all
+  else if (parsedUrl.pathname === "/graph" && req.method === "POST") {
+  let body = "";
 
-    req.on("end", () => {
-        try {
-        const newContainer = JSON.parse(body);
+  req.on("data", chunk => {
+      body += chunk.toString();
+  });
 
-        if (!newContainer.name || !Array.isArray(newContainer.node)) {
-            res.writeHead(400, { "Content-Type": "application/json" });
-            return res.end(JSON.stringify({ error: "Missing 'name' or 'node' array" }));
-        }
+  req.on("end", () => {
+      try {
+      const newContainer = JSON.parse(body);
 
-        const fileData = fs.readFileSync("graph.json", "utf-8");
-        const parsedGraph = JSON.parse(fileData);
-        const containers = parsedGraph.containers || [];
+      if (!newContainer.name || !Array.isArray(newContainer.node)) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          return res.end(JSON.stringify({ error: "Missing 'name' or 'node' array" }));
+      }
 
-        // Find next available contId
-        const existingIds = containers.map(c => c.contId);
-        let contId = 1;
-        while (existingIds.includes(contId)) contId++;
+      const fileData = fs.readFileSync("graph.json", "utf-8");
+      const parsedGraph = JSON.parse(fileData);
+      const containers = parsedGraph.containers || [];
 
-        const containerToAdd = {
-            contId,
-            name: newContainer.name,
-            node: newContainer.node,
-            edges: newContainer.edges || []
-        };
+      // Find next available contId
+      const existingIds = containers.map(c => c.contId);
+      let contId = 1;
+      while (existingIds.includes(contId)) contId++;
 
-        containers.push(containerToAdd);
+      // Validate that every node has x and y coordinates
+      const allNodesHaveCoordinates = newContainer.node.every(node =>
+        typeof node.x === "number" && typeof node.y === "number"
+      );
 
-        fs.writeFileSync("graph.json", JSON.stringify({ containers }, null, 2));
-
-        res.writeHead(201, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(containerToAdd));
-
-        } catch (error) {
+      if (!allNodesHaveCoordinates) {
         res.writeHead(400, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "Invalid JSON or malformed data" }));
-        }
+        return res.end(JSON.stringify({ error: "All nodes must have numeric x and y coordinates" }));
+      }
+
+      const containerToAdd = {
+        contId,
+        name: newContainer.name,
+        node: newContainer.node,
+        edges: newContainer.edges || []
+      };
+
+      containers.push(containerToAdd);
+
+      fs.writeFileSync("graph.json", JSON.stringify({ containers }, null, 2));
+
+      res.writeHead(201, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(containerToAdd));
+
+      } catch (error) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Invalid JSON or malformed data" }));
+      }
+  });
+  } 
+
+    // handles Get all
+  else if (parsedUrl.pathname === '/graph' && req.method === 'GET') {
+    const filePath = path.join(__dirname, 'graph.json');
+
+    fs.readFile(filePath, 'utf8', (err, data) => {
+      if (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Failed to read graph.json' }));
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(data);
+        const containers = parsed.containers || [];
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(containers));
+      } catch (parseError) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON in graph.json' }));
+      }
     });
-    } 
-    else if (parsedUrl.pathname.startsWith("/graph/")) {
-    const containerId = parseInt(parsedUrl.pathname.split("/").pop());
+  }
 
-    if (isNaN(containerId)) {
-        res.writeHead(400, { "Content-Type": "application/json" });
-        return res.end(JSON.stringify({ error: "Invalid container ID" }));
-    }
+  // Handles node position updates
+  else if (req.method === "PUT" && parsedUrl.pathname.startsWith("/graph/")) {
+  const parts = parsedUrl.pathname.split("/");
+  const contId = parseInt(parts[2]);
+  const nodeId = parseInt(parts[4]);
 
-    const fileData = fs.readFileSync("graph.json", "utf-8");
-    const parsedGraph = JSON.parse(fileData);
-    const containers = parsedGraph.containers || [];
-    const index = containers.findIndex(c => c.contId === containerId);
+  const container = graphData.containers.find(c => c.contId === contId);
+  if (!container) {
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Container not found" }));
+    return;
+  }
 
-    if (req.method === "GET") {
-        if (index !== -1) {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(containers[index]));
-        } else {
-        res.writeHead(404, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "Container not found" }));
-        }
-
-    } else if (req.method === "PUT") {
-        let updateBody = "";
-        req.on("data", chunk => {
-        updateBody += chunk.toString();
-        });
-        req.on("end", () => {
-        try {
-            const updatedData = JSON.parse(updateBody);
-            if (index === -1) {
-            res.writeHead(404, { "Content-Type": "application/json" });
-            return res.end(JSON.stringify({ error: "Container not found" }));
-            }
-
-            // Merge updates into the existing container
-            containers[index] = {
-            ...containers[index],
-            ...updatedData,
-            contId: containerId // Prevent contId overwrite
-            };
-
-            fs.writeFileSync("graph.json", JSON.stringify({ containers }, null, 2));
-            res.writeHead(200, { "Content-Type": "application/json" });
-            res.end(JSON.stringify(containers[index]));
-        } catch (err) {
-            res.writeHead(400, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "Invalid JSON" }));
-        }
-        });
-
-    } else if (req.method === "DELETE") {
-        if (index === -1) {
-        res.writeHead(404, { "Content-Type": "application/json" });
-        return res.end(JSON.stringify({ error: "Container not found" }));
-        }
-
-        const deleted = containers.splice(index, 1);
-        fs.writeFileSync("graph.json", JSON.stringify({ containers }, null, 2));
-        res.writeHead(204).end(); // No content
-
+  let body = "";
+  req.on("data", chunk => body += chunk);
+  req.on("end", () => {
+    const { x, y } = JSON.parse(body);
+    const node = container.node.find(n => n.id === nodeId);
+    if (node) {
+      node.x = x;
+      node.y = y;
+      fs.writeFileSync("graph.json", JSON.stringify(graphData, null, 2));
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true }));
     } else {
-        res.writeHead(405, { "Content-Type": "text/plain" });
-        res.end("Method Not Allowed");
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Node not found" }));
     }
-    }
+  });
+}
 
+  // handle all requests by id (Get, Put, Delete)
+  else if (parsedUrl.pathname.startsWith("/graph/")) {
+  const containerId = parseInt(parsedUrl.pathname.split("/").pop());
 
-//   if the path does not match any of the above
+  // Validate Id of the container
+  if (isNaN(containerId)) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ error: "Invalid container ID" }));
+  }
+
+  const fileData = fs.readFileSync("graph.json", "utf-8");
+  const parsedGraph = JSON.parse(fileData);
+  const containers = parsedGraph.containers || [];
+  const index = containers.findIndex(c => c.contId === containerId);
+
+  if (req.method === "GET") {
+      if (index !== -1) {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(containers[index]));
+      } else {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Container not found" }));
+      }
+
+  } 
+  else if (req.method === "PUT") {
+      let updateBody = "";
+      req.on("data", chunk => {
+      updateBody += chunk.toString();
+      });
+      req.on("end", () => {
+      try {
+          const updatedData = JSON.parse(updateBody);
+          if (index === -1) {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          return res.end(JSON.stringify({ error: "Container not found" }));
+          }
+
+          // Merge updates into the existing container
+          containers[index] = {
+          ...containers[index],
+          ...updatedData,
+          contId: containerId // Prevent contId overwrite
+          };
+
+          fs.writeFileSync("graph.json", JSON.stringify({ containers }, null, 2));
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(containers[index]));
+      } catch (err) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Invalid JSON" }));
+      }
+      });
+
+  } 
+  else if (req.method === "DELETE") {
+      if (index === -1) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ error: "Container not found" }));
+      }
+
+      const deleted = containers.splice(index, 1);
+      fs.writeFileSync("graph.json", JSON.stringify({ containers }, null, 2));
+      res.writeHead(204).end(); // No content
+
+  } else {
+      res.writeHead(405, { "Content-Type": "text/plain" });
+      res.end("Method Not Allowed");
+  }
+  }
+  
+  // Handle PUT request to update node positions
+// else if (req.method === "PUT" && pathname.startsWith("/graph/")) {
+//     const parts = pathname.split("/");
+//     const contId = parseInt(parts[2]);
+//     const nodeId = parseInt(parts[4]);
+
+//     const container = graphData.containers.find(c => c.contId === contId);
+//     if (!container) {
+//         res.writeHead(404, { "Content-Type": "application/json" });
+//         res.end(JSON.stringify({ error: "Container not found" }));
+//         return;
+//     }
+
+//     let body = "";
+//     req.on("data", chunk => body += chunk);
+//     req.on("end", () => {
+//         const { x, y } = JSON.parse(body);
+//         const node = container.node.find(n => n.id === nodeId);
+//         if (node) {
+//             node.x = x;
+//             node.y = y;
+//             fs.writeFileSync("graph.json", JSON.stringify(graphData, null, 2));
+//             res.writeHead(200, { "Content-Type": "application/json" });
+//             res.end(JSON.stringify({ success: true }));
+//         } else {
+//             res.writeHead(404, { "Content-Type": "application/json" });
+//             res.end(JSON.stringify({ error: "Node not found" }));
+//         }
+//     });
+// }
+
+  //   if the path does not match any of the above
   else {
     res.writeHead(404, { "Content-Type": "text/plain" });
     res.end("Not Found");
