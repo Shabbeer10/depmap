@@ -7,6 +7,32 @@ const graphFile = 'graph.json';
 let graphData = { nodes: [], edges: [] };
 const path = require('path');
 
+function embedEdgesIntoNodes(container) {
+  const nodeMap = new Map();
+  container.node.forEach(n => nodeMap.set(n.id, { ...n, edges: [] }));
+
+  container.edges?.forEach(edge => {
+    const { id, source, target } = edge;
+
+    const edgeInfo = { id, source, target };
+
+    // Add edge to source node
+    if (nodeMap.has(source)) {
+      nodeMap.get(source).edges.push(edgeInfo);
+    }
+
+    // Optionally, also add to the target node
+    if (nodeMap.has(target)) {
+      nodeMap.get(target).edges.push(edgeInfo);
+    }
+  });
+
+  return {
+    ...container,
+    node: Array.from(nodeMap.values())
+  };
+}
+
 // For the Cytoscape graph
 // Check if the graph file exists, if not create it with default structure
 if (fs.existsSync(graphFile)) {
@@ -162,20 +188,21 @@ const server = http.createServer((req, res) => {
 }
 
   // handles Post all
-  else if (parsedUrl.pathname === "/graph" && req.method === "POST") {
+// POST /graph
+else if (parsedUrl.pathname === "/graph" && req.method === "POST") {
   let body = "";
 
   req.on("data", chunk => {
-      body += chunk.toString();
+    body += chunk.toString();
   });
 
   req.on("end", () => {
-      try {
+    try {
       const newContainer = JSON.parse(body);
 
       if (!newContainer.name || !Array.isArray(newContainer.node)) {
-          res.writeHead(400, { "Content-Type": "application/json" });
-          return res.end(JSON.stringify({ error: "Missing 'name' or 'node' array" }));
+        res.writeHead(400, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify({ error: "Missing 'name' or 'node' array" }));
       }
 
       const fileData = fs.readFileSync("graph.json", "utf-8");
@@ -187,7 +214,7 @@ const server = http.createServer((req, res) => {
       let contId = 1;
       while (existingIds.includes(contId)) contId++;
 
-      // Validate that every node has x and y coordinates
+      // Validate all nodes have x and y
       const allNodesHaveCoordinates = newContainer.node.every(node =>
         typeof node.x === "number" && typeof node.y === "number"
       );
@@ -197,11 +224,21 @@ const server = http.createServer((req, res) => {
         return res.end(JSON.stringify({ error: "All nodes must have numeric x and y coordinates" }));
       }
 
+      const edges = [];
+      (newContainer.node || []).forEach(node => {
+        (node.edges || []).forEach(edge => {
+          edges.push({
+            id: edges.length + 1,
+            source: edge.source ?? node.id,
+            target: edge.target
+          });
+        });
+      });
+
       const containerToAdd = {
         contId,
         name: newContainer.name,
         node: newContainer.node,
-        edges: newContainer.edges || []
       };
 
       containers.push(containerToAdd);
@@ -210,37 +247,41 @@ const server = http.createServer((req, res) => {
 
       res.writeHead(201, { "Content-Type": "application/json" });
       res.end(JSON.stringify(containerToAdd));
-
-      } catch (error) {
+    } catch (error) {
       res.writeHead(400, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Invalid JSON or malformed data" }));
-      }
+    }
   });
-  } 
+}
+
 
     // handles Get all
-  else if (parsedUrl.pathname === '/graph' && req.method === 'GET') {
-    const filePath = path.join(__dirname, 'graph.json');
+else if (parsedUrl.pathname === '/graph' && req.method === 'GET') {
+  const filePath = path.join(__dirname, 'graph.json');
 
-    fs.readFile(filePath, 'utf8', (err, data) => {
-      if (err) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Failed to read graph.json' }));
-        return;
-      }
+  fs.readFile(filePath, 'utf8', (err, data) => {
+    if (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Failed to read graph.json' }));
+      return;
+    }
 
-      try {
-        const parsed = JSON.parse(data);
-        const containers = parsed.containers || [];
+    try {
+      const parsed = JSON.parse(data);
+      const containers = parsed.containers || [];
 
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(containers));
-      } catch (parseError) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid JSON in graph.json' }));
-      }
-    });
-  }
+      // Embed edges into each node
+      const updatedContainers = containers.map(embedEdgesIntoNodes);
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(updatedContainers));
+    } catch (parseError) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid JSON in graph.json' }));
+    }
+  });
+}
+
 
   // Handles node position updates
   else if (req.method === "PUT" && parsedUrl.pathname.startsWith("/graph/")) {
@@ -291,7 +332,8 @@ const server = http.createServer((req, res) => {
   if (req.method === "GET") {
       if (index !== -1) {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(containers[index]));
+      const containerWithEmbeddedEdges = embedEdgesIntoNodes(containers[index]);
+      res.end(JSON.stringify(containerWithEmbeddedEdges));
       } else {
       res.writeHead(404, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Container not found" }));

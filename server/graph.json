@@ -2,57 +2,20 @@
   "containers": [
     {
       "contId": 1,
-      "name": "TestData1",
+      "name": "TestGraph",
       "node": [
         {
           "id": 1,
-          "name": "1st Int",
-          "x": 252.727294921875,
-          "y": 12.954544067382812,
-          "data": {
-            "value": 2
-          }
-        },
-        {
-          "id": 2,
-          "name": "Operator",
-          "x": 141.3636474609375,
-          "y": 321.3511414640126,
-          "data": {
-            "value": "+"
-          }
-        },
-        {
-          "id": 3,
-          "name": "2nd Int",
-          "x": 277.272705078125,
-          "y": 150,
-          "data": {
-            "value": 3
-          }
-        },
-        {
-          "id": 4,
-          "name": "Total",
-          "x": 147.72726440429688,
-          "y": 150,
-          "data": {
-            "value": 5
-          }
-        }
-      ],
-      "edges": [
-        {
-          "source": 1,
-          "target": 2
-        },
-        {
-          "source": 2,
-          "target": 3
-        },
-        {
-          "source": 3,
-          "target": 4
+          "name": "John",
+          "x": 100,
+          "y": 100,
+          "edges": [
+            {
+              "id": 1,
+              "source": 1,
+              "target": 2
+            }
+          ]
         }
       ]
     }
